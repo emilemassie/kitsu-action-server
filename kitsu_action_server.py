@@ -226,22 +226,54 @@ class kitsu_action_ui(QtWidgets.QMainWindow):
             self.show()
 
         self.connect_button.released.connect(self.connect_clicked)
-
-        
-        
-        #self.setup_plugin_ui()
         self.load_all_plugins_settings(verbose=False)
-        #self.server_worker.set_environ()
+        self.server.add_url_rule('/open_task_directory', view_func=self.show_task_directory, methods=['POST'])
 
-       
-
-   
     
+    def show_task_directory(self):
+        data = request.form  # Use form data instead of JSON
+        print(data)
 
+        for task_id in data['selection'].split(','):
+            task = gazu.task.get_task(task_id)
+            entity = gazu.entity.get_entity(task['entity']['id'])
+            entity_type = entity['type'].lower()
+            entity_name = entity['name']
 
+            
+            print(entity)
+            project_name = gazu.project.get_project(data['projectid'])['name']
 
-            #project_root = self.show_message_project(project['name'])
-            #self.set_project_root(project['name'], project_root)
+            if self.get_project_root(project_name):
+                project_root = self.get_project_root(project_name)
+            else:
+                project_root = self.show_message_project(project_name)
+
+            task_dir = None 
+            
+            if project_root:
+
+                if entity_type == 'shot':
+                    parent_name = gazu.entity.get_entity(entity['parent_id'])['name']
+                else:
+                    parent_name = gazu.entity.get_entity_type(entity['entity_type_id'])['name']
+                
+                task_dir = os.path.join(project_root,entity_type,parent_name,entity_name)
+            else:
+                return 'No Project Root'
+            
+            if task_dir:
+                os.makedirs(task_dir, exist_ok=True)  # Create the directory if it doesn't exist
+
+                if sys.platform == "win32":
+                    os.startfile(task_dir)  # Windows
+                elif sys.platform == "darwin":
+                    subprocess.run(["open", task_dir])  # macOS
+                else:
+                    subprocess.run(["xdg-open", task_dir])  # Linux
+                
+                return f'Task Directory opened : {task_dir}' 
+
 
     def close_and_hide(self):
         self.show_notification.emit("Kitsu Action Server","Application was minimized to Tray", self.icon, 200)
@@ -273,7 +305,6 @@ class kitsu_action_ui(QtWidgets.QMainWindow):
 
         self.vv.show()
         
-
     def on_version_clicked(self, item):
         """Handle item double-click event."""
         file_path = item.data(QtCore.Qt.ItemDataRole.UserRole)

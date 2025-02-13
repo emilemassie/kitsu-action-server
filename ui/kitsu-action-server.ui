@@ -1472,7 +1472,7 @@ QPushButton::pressed
                  </property>
                  <widget class="QWidget" name="tab_3">
                   <attribute name="title">
-                   <string> VERSIONS </string>
+                   <string> STATUS </string>
                   </attribute>
                   <layout class="QVBoxLayout" name="verticalLayout_3">
                    <item>
