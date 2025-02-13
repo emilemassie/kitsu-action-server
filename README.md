@@ -1,9 +1,7 @@
 # Kitsu Action Server
 
-![image]()
-
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/c080f7b3-f4ba-4214-b010-29b581d686e9" alt="Kitsu Action Server" width="200">
+  <img src="https://github.com/user-attachments/assets/c080f7b3-f4ba-4214-b010-29b581d686e9" alt="Kitsu Action Server" width="400">
 </p>
 
 
