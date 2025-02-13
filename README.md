@@ -1,8 +1,11 @@
 # Kitsu Action Server
 
+![image]()
+
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/e74980ee-7e8f-411f-b046-da5269affd11" alt="Kitsu Action Server" width="600">
+  <img src="https://github.com/user-attachments/assets/c080f7b3-f4ba-4214-b010-29b581d686e9" alt="Kitsu Action Server" width="200">
 </p>
+
 
 Kitsu Action Server is a local listener for the [Kitsu](https://kitsu.io) shot-tracking platform.  
 It runs in the system tray and allows users to launch **Nuke**, **Blender**, or any other DCC with a plugin, ensuring the correct context environment and publishing features.
