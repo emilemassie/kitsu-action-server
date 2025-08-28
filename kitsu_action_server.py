@@ -13,7 +13,7 @@ from PyQt6.QtCore import Qt, QPoint, QObject, QThread, pyqtSignal, pyqtSlot,QMet
 from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
 
 
-VERSION = '1.0.1'
+VERSION = '1.1.0'
 
 def get_application_root_path():
     # determine if application is a script file or frozen exe
@@ -55,9 +55,6 @@ class kitsu_action_server(QtCore.QThread):
         self.ui_window = ui_window
         self.version = None
 
-
-
-
          # adding defaults set porject root
         self.server.add_url_rule('/set-project-root', view_func=self.set_project_root, methods=['POST'])
 
@@ -91,16 +88,24 @@ class kitsu_action_server(QtCore.QThread):
 
     def get_version(self, plugin, args=[]):
         task = gazu.task.get_task(os.environ['KITSU_CONTEXT_ID'])
-        version_folder = os.path.abspath(os.path.join(os.environ['KITSU_PROJECT_ROOT'],'shot',os.environ['KITSU_SEQUENCE'] , os.environ['KITSU_SHOT'], 'project_files',task['task_type']['name'].lower()))
+        if task['task_type']['for_entity'].lower() == 'shot':
+            version_folder = os.path.abspath(os.path.join(os.environ['KITSU_PROJECT_ROOT'],'shot',os.environ['KITSU_SEQUENCE'] , os.environ['KITSU_SHOT'], 'project_files',task['task_type']['name'].lower().replace(' ','_')))
+        else:
+            task_name = task['task_type']['name'].lower().replace(' ','_') # shading
+            task_type =  task['task_type']['for_entity'].lower().replace(' ','_') # asset
+            task_asset = task['entity']['name'].lower().replace(' ','_') # mychar
+            asset_cathegory = task['entity_type']['name'].lower().replace(' ','_') # character
+
+            version_folder = os.path.abspath(os.path.join(os.environ['KITSU_PROJECT_ROOT'],task_type, asset_cathegory,task_asset, task_name, 'project_files'))
+            
         os.makedirs(version_folder, exist_ok=True)
+        print('------------------------------------> ',version_folder)
         self.setup_version_tree.emit(version_folder,plugin, args)
         self.version = None
 
     def set_environ(self, fromweb=None):
 
         if self.ui_window.url and self.ui_window.user and self.ui_window.access_token:
-
-            
 
             data = {
 
@@ -125,16 +130,26 @@ class kitsu_action_server(QtCore.QThread):
                 project_name = gazu.project.get_project(fromweb['projectid'])['name']
                 os.environ['KITSU_CONTEXT_ID'] = fromweb['selection']
                 os.environ['KITSU_PROJECT'] = project_name
-                os.environ['KITSU_SEQUENCE'] = task['sequence']['name']
-                os.environ['KITSU_SHOT'] = task['entity']['name']
 
+                if task['task_type']['for_entity'].lower() == 'shot':
 
-                full_text = full_text + (
-                    f'\n\nKITSU_CONTEXT_ID : {fromweb["selection"]}\n'
-                    f'KITSU_PROJECT : {project_name}\n'
-                    f"KITSU_SEQUENCE : {task['sequence']['name']}\n"
-                    f"KITSU_SHOT : {task['entity']['name']}"
-                )
+                    os.environ['KITSU_SEQUENCE'] = task['sequence']['name']
+                    os.environ['KITSU_SHOT'] = task['entity']['name']
+
+                    full_text = full_text + (
+                        f'\n\nKITSU_CONTEXT_ID : {fromweb["selection"]}\n'
+                        f'KITSU_PROJECT : {project_name}\n'
+                        f"KITSU_SEQUENCE : {task['sequence']['name']}\n"
+                        f"KITSU_SHOT : {task['entity']['name']}"
+                    )
+                else:
+
+                    full_text = full_text + (
+                        f'\n\nKITSU_CONTEXT_ID : {fromweb["selection"]}\n'
+                        f'KITSU_PROJECT : {project_name}\n'
+                        f"KITSU_ASSET_TYPE : {task['task_type']['name']}"
+                        f"KITSU_ASSET : {task['entity']['name']}\n"
+                    )
 
                 project_root = self.ui_window.get_project_root(project_name)
 
@@ -160,11 +175,14 @@ class kitsu_action_server(QtCore.QThread):
 class kitsu_action_ui(QtWidgets.QMainWindow):
     update_signal = QtCore.pyqtSignal(str)
     show_notification = QtCore.pyqtSignal(str,str,object,int)
+    show_plugin_dialog_signal = pyqtSignal(object)  # QWidget class
     def __init__(self):
         super().__init__()
         self.server = Flask(__name__)
         self.host = '0.0.0.0'
         self.port = '90'
+
+        self.show_plugin_dialog_signal.connect(self.show_widget_window)
         
         self.root_folder = os.path.dirname(__file__)
         uic.loadUi(os.path.join(self.root_folder,'ui','kitsu-action-server.ui'), self) 
@@ -191,6 +209,7 @@ class kitsu_action_ui(QtWidgets.QMainWindow):
         self.plugin_folder = os.path.join(get_application_root_path(), 'plugins')
         self.plugins = self.get_plugins(self.plugin_folder)
         self.get_plugins_funct()
+         
 
 
         self.access_token = None
@@ -227,8 +246,21 @@ class kitsu_action_ui(QtWidgets.QMainWindow):
 
         self.connect_button.released.connect(self.connect_clicked)
         self.load_all_plugins_settings(verbose=False)
+        self.setup_plugin_ui() 
         self.server.add_url_rule('/open_task_directory', view_func=self.show_task_directory, methods=['POST'])
 
+    def show_widget_window(self, widget_cls, *args, **kwargs):
+        widget = widget_cls(*args, **kwargs)
+        widget.setWindowIcon(self.icon)
+        widget.setStyleSheet(self.styleSheet())
+        widget.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        widget.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)  # Optional auto-cleanup
+        widget.raise_()
+        widget.activateWindow()
+        widget.show()
+
+        # Save reference to avoid garbage collection
+        self._last_opened_widget = widget
     
     def show_task_directory(self):
         data = request.form  # Use form data instead of JSON
@@ -285,6 +317,7 @@ class kitsu_action_ui(QtWidgets.QMainWindow):
     def update_tree(self, version_folder, plugin, args):
 
         self.vv.listWidget.clear()
+        print(version_folder, plugin, args)
         version_num = 1
         for version in reversed(os.listdir(version_folder)):
             for file in os.listdir(os.path.join(version_folder,version)):
@@ -330,7 +363,7 @@ class kitsu_action_ui(QtWidgets.QMainWindow):
                 except:
                     plugin.exec = None
         
-            self.setup_plugin_ui()  
+            
             if verbose:
                 self.update_log(msg[:-1]+' Executable Paths')
 
@@ -390,15 +423,17 @@ class kitsu_action_ui(QtWidgets.QMainWindow):
     def set_plugin_executable(self, plugin, label):
         exec_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, f"Select {plugin.name} Executable")
         if exec_path:
-            label.setText(exec_path) 
+            label.setText(exec_path)
             self.save_plugin_config(plugin,exec_path)
+            return exec_path
 
     def get_plugin_exec(self, plugin, label):
         try:
             return self.settings_dict['plugins'][plugin.name]['exec']
         except:
-            self.set_plugin_executable(plugin,label)
-
+            exec_path = self.set_plugin_executable(plugin,label)
+            return exec_path
+         
     def save_plugin_config(self, plugin, exec_path=None):
         with open(self.settings_file, 'r') as f:
                 new_dict = json.load(f)
@@ -419,21 +454,22 @@ class kitsu_action_ui(QtWidgets.QMainWindow):
             pr_wt = QtWidgets.QWidget()
             layout = QtWidgets.QHBoxLayout()
             layout.setContentsMargins(3, 0, 0, 0)
-            label = QtWidgets.QLabel('')
+            label = QtWidgets.QLineEdit('')
             plugin_exec = self.get_plugin_exec(plugin, label)
             label.setText(plugin_exec)
             label.setToolTip(plugin_exec)
+            label.setReadOnly(True)
             layout.addWidget(label)
             button = QtWidgets.QPushButton()
             button.setText('CHANGE')
             button.released.connect(lambda p=plugin, l=label: self.set_plugin_executable(p, l))
             layout.addWidget(button)
+            button.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Minimum)
             pr_wt.setLayout(layout)
             
             self.tableWidget.insertRow(row_count)
             self.tableWidget.setItem(self.tableWidget.rowCount()-1, 0,item)
             self.tableWidget.setCellWidget(self.tableWidget.rowCount()-1, 1, pr_wt)
-
     
     def get_plugins_funct(self):
         self.update_log('Getting plugins functions\n')
@@ -596,7 +632,6 @@ class kitsu_action_ui(QtWidgets.QMainWindow):
             self.log_view.append(message)  # Append message to log view
 
         self.log_view.moveCursor(QtGui.QTextCursor.MoveOperation.End)
-
             
     def mousePressEvent(self, event):
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
@@ -699,8 +734,6 @@ class kitsu_action_ui(QtWidgets.QMainWindow):
             self.setCursor(Qt.ArrowCursor)            
 
 class SystemTrayIcon(QtWidgets.QSystemTrayIcon):
-
-    
     def __init__(self, icon, parent=None):
         QtWidgets.QSystemTrayIcon.__init__(self, icon, parent)
         menu = QMenu(parent)

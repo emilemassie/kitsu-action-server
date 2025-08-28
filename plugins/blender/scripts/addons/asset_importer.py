@@ -1,0 +1,2 @@
+import PyQt6
+

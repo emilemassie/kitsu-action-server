@@ -18,27 +18,4 @@ if addon_directory not in sys.path:
     sys.path.append(addon_directory)
 
 import_addon('kitsu_menu')
-
-from bpy.app.handlers import persistent
-
-@persistent
-def load_handler(scene):
-    version = 'v'+bpy.path.basename(bpy.data.filepath).split(".")[0].split('_v')[-1]
-    export_file_path = os.path.join(os.environ['KITSU_PROJECT_ROOT'], 'assets', os.environ['KITSU_SHOT'], os.environ['KITSU_TASK'], 'renders', version, bpy.path.basename(bpy.data.filepath).split(".")[0]+'.####.exr')
-    bpy.context.scene.render.filepath = export_file_path
-
-    # Access the render settings
-    render = bpy.context.scene.render
-
-    # Set the file format to EXR
-    render.image_settings.file_format = 'OPEN_EXR'
-
-    # Configure the EXR compression settings
-    render.image_settings.exr_codec = 'DWAA'  # Set the EXR compression to DWAA (Discrete Wavelet Approximation)
-    render.image_settings.color_depth = '16'
-    os.makedirs(os.path.dirname(export_file_path), exist_ok=True)
-    print("Load Handler:", bpy.data.filepath)
-
-bpy.app.handlers.load_post.append(load_handler)
-bpy.app.handlers.save_post.append(load_handler)
-
+import_addon('RenderManager')

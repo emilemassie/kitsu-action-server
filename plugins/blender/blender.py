@@ -58,7 +58,7 @@ class Plugin:
         else:
             pname = project['name']
 
-        filename = f"{os.environ['KITSU_SHOT']}_{task['task_type']['name']}"
+        filename = f"{os.environ['KITSU_SHOT']}_{task['task_type']['name'].lower().replace(' ', '_')}"
         filename = filename.lower()
         file_path= version_folder
         if version:
@@ -68,8 +68,6 @@ class Plugin:
         
         filename = filename+extension
         file_path = os.path.join(file_path,filename)
-
-        print(filename, file_path)
         
         self.kitsu_action_server.update_log('Creating : ' + str(file_path))
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
@@ -77,9 +75,10 @@ class Plugin:
             pass
 
         
-        python_code = 'import bpy\n'+ f'bpy.ops.wm.save_as_mainfile(filepath=r"{file_path}")'
+        python_code = 'import bpy; '+ f'bpy.ops.wm.save_as_mainfile(filepath=r"{file_path}" ); bpy.ops.wm.quit_blender()'
         process = subprocess.run([exec, '-b',"--python-expr", python_code], env=os.environ.copy())
-        subprocess.Popen([exec, file_path], env=os.environ.copy())
+        #subprocess.Popen([exec, file_path], env=os.environ.copy())
+        self.open_file(file_path)
         return file_path
 
 
@@ -92,7 +91,7 @@ class Plugin:
         try:
             exec = self.kitsu_action_server.settings_dict['plugins'][self.name]['exec']
         except:
-            return 'Cannot find nuke exec'
+            return 'Cannot find blender exec'
 
         if not data:
             return jsonify({'error': 'No form data received'}), 400

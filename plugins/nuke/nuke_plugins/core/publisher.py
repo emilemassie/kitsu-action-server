@@ -41,7 +41,7 @@ class KitsuConnecPublisher(QMainWindow):
         self.ui.project.setText(os.getenv('KITSU_PROJECT'))
         self.ui.sequence.setText(os.getenv('KITSU_SEQUENCE'))
         self.ui.shot.setText(os.getenv('KITSU_SHOT'))
-        self.ui.task.setText(os.getenv('KITSU_TASK'))
+        self.ui.task.setText(self.task['task_type']['name'])
         
         #self.ui.publish_button.setEnabled(False)
         
@@ -99,6 +99,9 @@ class KitsuConnecPublisher(QMainWindow):
                 comment,
                 self.preview_file_path
             )
+        
+        if self.ui.hours_log_spinbox.value() > 0:
+            gazu.task.add_time_spent(task, gazu.person.get_person_by_email(os.environ['KITSU_USER']), datetime.date.today().strftime("%Y-%m-%d"), int(self.ui.hours_log_spinbox.value()*60))
 
     def set_file_path(self, file_path):
         self.file_path = file_path
@@ -228,6 +231,10 @@ class KitsuConnecPublisher(QMainWindow):
                 nuke.delete(kitsu_format)
             if lut_file:
                 nuke.delete(lut_node)
+
+
+            #version up the script 
+            nuke.menu('Nuke').findItem('File/Save New Comp Version').invoke()
 
         return output_file_path
 

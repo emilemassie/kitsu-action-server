@@ -1,0 +1,4 @@
+flask
+appdirs
+PyQt6
+gazu

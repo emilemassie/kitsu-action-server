@@ -7,7 +7,7 @@ class Plugin:
     
     def __init__(self, kitsu_action_server):
         self.kitsu_action_server = kitsu_action_server
-        self.name = 'nuke'
+        self.name = 'Foundry Nuke'
         self.extension = '.nk'
         self.icon = os.path.join(os.path.dirname(__file__),'nuke_icon.png') 
 
