@@ -37,7 +37,7 @@ class KitsuMenu(MinorMode):
         )
     
     def show_panel(self, event):
-        if self.panel.is_showing:
+        if self.panel.dock_widget.isVisible():
             self.panel.dock_widget.hide()
             self.panel.is_showing = False
             displayFeedback("Hiding Kitsu Panel", 2.0)
