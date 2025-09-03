@@ -1,26 +1,18 @@
 import os
-
-from PySide2.QtUiTools import QUiLoader
-from PySide2.QtWidgets import QWidget, QLabel, QVBoxLayout
-from PySide2.QtGui import QPixmap
-from PySide2.QtCore import Qt, Signal
-from PySide2 import QtWidgets, QtCore
-from PySide2.QtCore import QThread, Signal, QObject
-
 import re
-from pathlib import Path
+from PySide2.QtUiTools import QUiLoader
+from PySide2.QtWidgets import QWidget, QLabel, QVBoxLayout, QScrollArea, QDockWidget, QApplication, QMainWindow
+from PySide2.QtGui import QPixmap
+from PySide2.QtCore import Qt, Signal, QThread, QObject, QFile
 
-from rv import rvtypes
-import rv.commands
+from rv import rvtypes, commands
 import gazu
-
 from flow_layout import FlowLayout
 
 
 def try_gazu_connection():
     try:
-
-        gazu.client.set_host(os.getenv('KITSU_HOST')+"/api")
+        gazu.client.set_host(os.getenv('KITSU_HOST') + "/api")
         gazu.log_in("emile.massie@gmail.com", "emile220")
         print("Connected to Kitsu")
         return True
@@ -28,34 +20,31 @@ def try_gazu_connection():
         print(e)
         return False
 
+
 class ClickableVersionWidget(QWidget):
-    doubleClicked = Signal(str)  # You can emit version path or name
+    doubleClicked = Signal(str)
 
     def __init__(self, file_path, image_path=None, parent=None):
         super().__init__(parent)
         self.file_path = file_path
         self.version_name = os.path.basename(file_path)
-        self.image_path = image_path
 
         self.setFixedSize(160, 90)
-
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Create stacked layout
+        # Thumbnail
         self.image_label = QLabel()
         self.image_label.setFixedSize(160, 90)
         self.image_label.setScaledContents(True)
+        if image_path:
+            self.image_label.setPixmap(QPixmap(image_path))
 
-        if self.image_path:
-            self.image_label.setPixmap(QPixmap(self.image_path))
-
-
-        label_name = f'{os.path.basename(image_path).split(".")[0]}\n{self.version_name}\n{self.file_path}'
-
+        # Info text
+        label_name = f'{os.path.basename(image_path).split(".")[0] if image_path else ""}\n{self.version_name}\n{self.file_path}'
         self.text_label = QLabel(label_name)
         self.text_label.setAlignment(Qt.AlignCenter)
-        self.text_label.setStyleSheet("background-color: rgba(0, 0, 0, 128); color: white; padding: 5px; border-radius: 5px;")
+        self.text_label.setStyleSheet("background-color: rgba(0,0,0,128); color: white; padding: 5px;")
         self.text_label.setAttribute(Qt.WA_TransparentForMouseEvents)
 
         layout.addWidget(self.image_label)
@@ -65,65 +54,77 @@ class ClickableVersionWidget(QWidget):
         self.doubleClicked.emit(self.file_path)
 
 
-
 class VersionFoldersWorker(QObject):
     finished = Signal(dict)
-    progress = Signal(str,int)
+    progress = Signal(str, int)
+    create_widget = Signal(str, str)  # path, preview file
+
     def __init__(self, root_path, context_id, isconnected):
         super().__init__()
+        self.is_stopped = False
         self.root_path = root_path
         self.context_id = context_id
         self.isconnected = isconnected
-        self.total_folders = self.count_folders()
+        self.total_folders = 0
 
     def run(self):
-        result = self.collect_version_folders_sorted_by_ctime()
-        self.finished.emit(result if result else {})
+        result = self.collect_version_folders()
+        self.finished.emit(result or {})
 
-    def count_folders(self):
-        count = 0
-        for dirpath, dirnames, filenames in os.walk(self.root_path):
-            count += len(dirnames)
-        return count
-
-    def collect_version_folders_sorted_by_ctime(self):
-        self.progress.emit("Collecting version folders...", 0)
-        if self.isconnected and self.context_id:
-            version_folders = {}
-            # Regex pattern to match folders like v0001, v0002, etc.
-            pattern = re.compile(r"^v\d{4}$")
-            supported_extensions = ['.exr', '.jpg', '.jpeg', '.png', '.mov', '.mp4', '.tif', '.tiff', '.dpx']
-            counter = 0
-            for dirpath, dirnames, filenames in os.walk(self.root_path):
-                # self.progress.emit(f"Scanned {counter}/{self.total_folders} subdirectories", counter)
-                for dirname in dirnames:
-                    counter += 1
-                    full_path = os.path.join(dirpath, dirname)
-                    media_files = [
-                        os.path.join(full_path, f)
-                        for f in sorted(os.listdir(full_path))
-                        if os.path.splitext(f)[1].lower() in supported_extensions
-                    ]
-                    if not media_files:
-                        continue
-                    ctime = os.path.getctime(full_path)
-                    relative_path = os.path.relpath(full_path, self.root_path)
-                    tags = relative_path.replace("\\", "/").split("/")
-                    if 'media' not in tags:
-                        continue
-                    else:
-                        self.progress.emit(f"Processing {counter}/{self.total_folders} subdirectories", int(counter / self.total_folders * 100))
-                        tags.remove('media')
-                    version_folders[full_path] = {
-                        'ctime': ctime,
-                        'tags': tags
-                    }
-            sorted_versions = dict(
-                sorted(version_folders.items(), key=lambda item: item[1]['ctime'], reverse=True)
-            )
-            return sorted_versions
-        else:
+    def collect_version_folders(self):
+        if not (self.isconnected and self.context_id):
             return None
+
+        self.progress.emit("Collecting version folders...", 0)
+        version_folders = {}
+        exts = ('.exr', '.jpg', '.jpeg', '.png', '.mov', '.mp4', '.tif', '.tiff', '.dpx')
+
+        # Count folders only once (avoid double os.walk)
+        all_dirs = [os.path.join(dp, dn) for dp, dns, _ in os.walk(self.root_path) for dn in dns]
+        self.total_folders = len(all_dirs)
+        self.progress.emit(
+                f"Processing {0}/{self.total_folders}",
+                int(0 / self.total_folders * 100),
+            )
+
+        for counter, full_path in enumerate(all_dirs, 1):
+            
+            if getattr(self, "is_stopped", False):
+                print("⏹ Worker interrupted")
+                return
+
+            try:
+                # Find first media file (no need to sort the whole dir)
+                media_files = [f for f in os.listdir(full_path) if f.lower().endswith(exts)]
+            except PermissionError:
+                continue  # skip restricted folders
+
+            if not media_files:
+                continue
+
+            relative_path = os.path.relpath(full_path, self.root_path)
+            tags = relative_path.replace("\\", "/").split("/")
+
+            if "media" not in tags:
+                continue
+
+            tags.remove("media")
+            self.progress.emit(
+                f"Processing {counter}/{self.total_folders}",
+                int(counter / self.total_folders * 100),
+            )
+
+            version_folders[full_path] = {
+                "ctime": os.path.getctime(full_path),
+                "tags": tags,
+            }
+            # Only preview first file
+            self.create_widget.emit(full_path, os.path.join(full_path, media_files[0]))
+
+        # Sort once at the end
+        return dict(sorted(version_folders.items(), key=lambda item: item[1]["ctime"], reverse=True))
+
+
 
 class KitsuPanel(rvtypes.MinorMode):
     def __init__(self, supportPath):
@@ -131,208 +132,166 @@ class KitsuPanel(rvtypes.MinorMode):
         self.init("Emile Exemple", None, None)
         self.isconnected = try_gazu_connection()
 
-        self.loader = QUiLoader()
-        
-        uifile = QtCore.QFile(os.path.join(supportPath, "kitsu_panel.ui"))
-        uifile.open(QtCore.QFile.ReadOnly)
-        self.panel = self.loader.load(uifile)
+        loader = QUiLoader()
+        uifile = QFile(os.path.join(supportPath, "kitsu_panel.ui"))
+        uifile.open(QFile.ReadOnly)
+        self.panel = loader.load(uifile)
         uifile.close()
 
-        # Create the scroll area
-        self.panel.scroll_area = QtWidgets.QScrollArea(self.panel)
+        # Scroll area
+        self.panel.scroll_area = QScrollArea(self.panel)
         self.panel.scroll_area.setWidgetResizable(True)
-        self.panel.scroll_area.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
-        self.panel.scroll_area.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.panel.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
-        # Create the scroll content widget
-        self.panel.scroll_content = QtWidgets.QWidget()
+        self.panel.scroll_content = QWidget()
         self.panel.version_grid = FlowLayout(self.panel.scroll_content)
-        # This ensures that scroll_content expands in width but flows vertically
         self.panel.scroll_content.setLayout(self.panel.version_grid)
         self.panel.scroll_area.setWidget(self.panel.scroll_content)
+        self.panel.progressBar.setValue(0)
 
-        # Add the scroll area to your main layout (replace this with your panel layout)
-        main_layout = self.panel.FlowLayout
-        main_layout.addWidget(self.panel.scroll_area)
+        self.panel.FlowLayout.addWidget(self.panel.scroll_area)
 
-        try:
-            self.context_id = os.environ['KITSU_CONTEXT_ID']
+        self.context_id = os.getenv("KITSU_CONTEXT_ID")
+        if self.context_id:
             self.panel.context_id_label.setText(self.context_id)
-            self.refresh_versions_threaded()
-            
-        except Exception as e:
-            self.context_id = None
-            print(e)
+        self.project_root = os.getenv("KITSU_PROJECT_ROOT")
 
-        
-
-        # Wrap in a QDockWidget for docking
-        self.dock_widget = QtWidgets.QDockWidget("Kitsu")
+        # Dock widget
+        self.dock_widget = QDockWidget("Kitsu")
         self.dock_widget.setWidget(self.panel)
         self.dock_widget.setMinimumWidth(self.panel.width())
         self.dock_widget.setObjectName("KitsuPanel")
-        self.is_showing = False
 
-        # Embed it in OpenRV's main window
         self.inject_into_main_window()
-        
         self.panel.refresh_button.clicked.connect(self.refresh_versions_threaded)
 
+
+
     def inject_into_main_window(self):
-        # Find the main RV window
-        for widget in QtWidgets.QApplication.topLevelWidgets():
-            if isinstance(widget, QtWidgets.QMainWindow):
-                main_window = widget
-                break
+        for widget in QApplication.topLevelWidgets():
+            if isinstance(widget, QMainWindow):
+                widget.addDockWidget(Qt.RightDockWidgetArea, self.dock_widget)
+                self.dock_widget.hide()  # starts hidden
+                return
+        print("❌ Could not find RV main window")
+
+    # 👉 Instead of using self.is_showing, check directly:
+    def toggle_panel(self):
+        if self.dock_widget.isVisible():
+            self.dock_widget.hide()
         else:
-            print("❌ Could not find RV main window")
-            return
-        main_window.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.dock_widget)
-        self.dock_widget.hide()
-        self.is_showing = False
+            self.dock_widget.show()
 
-    def get_version_folders_sorted_by_ctime(self):
-        if self.isconnected and self.context_id:
-            root_path = os.getenv('KITSU_PROJECT_ROOT')
-            version_folders = {}
+    def inject_into_main_window(self):
+        for widget in QApplication.topLevelWidgets():
+            if isinstance(widget, QMainWindow):
+                widget.addDockWidget(Qt.RightDockWidgetArea, self.dock_widget)
+                self.dock_widget.hide()
+                return
+        print("❌ Could not find RV main window")
 
-            # Regex pattern to match folders like v0001, v0002, etc.
-            pattern = re.compile(r"^v\d{4}$")
-
-
-
-            supported_extensions = ['.exr', '.jpg', '.jpeg', '.png', '.mov', '.mp4', '.tif', '.tiff', '.dpx']
-    
-        
-
-            # Scan all subdirectories
-            for dirpath, dirnames, filenames in os.walk(root_path):
-                for dirname in dirnames:
-
-                    full_path = os.path.join(dirpath, dirname)
-                    media_files = [
-                        os.path.join(full_path, f)
-                        for f in sorted(os.listdir(full_path))
-                        if os.path.splitext(f)[1].lower() in supported_extensions
-                    ]
-
-                    if not media_files:
-                        print("No supported media files found in the directory. --- >" + full_path)
-                        continue
-                    else :
-
-                        print("Found media files in directory:", full_path)
-                        ctime = os.path.getctime(full_path)
-
-                        # Get relative path from root and split it into tags
-                        relative_path = os.path.relpath(full_path, root_path)
-                        tags = relative_path.replace("\\", "/").split("/")
-
-                        # Filter: keep only if 'media' in the path tags
-                        if 'media' not in tags:
-                            continue
-                        else: 
-                            tags.remove('media')
-
-                        version_folders[full_path] = {
-                            'ctime': ctime,
-                            'tags': tags
-                        }
-
-            # Sort by creation time
-            sorted_versions = dict(
-                sorted(version_folders.items(), key=lambda item: item[1]['ctime'], reverse=True)
-            )
-
-            return sorted_versions
-        else:
-            return None
-        
-    def populate_version_panel(self, sorted_versions):
-        for path, info in sorted_versions.items():
-            info['files'] = os.listdir(path)
-            #print(path, info['ctime'], info['tags'], info['files'])
-
-        all_tags = set()
-        for entry in sorted_versions.values():
-            all_tags.update(entry['tags'])
-
-
-        # Clear all existing widgets
-        while self.panel.version_grid.count():
-            item = self.panel.version_grid.takeAt(0)
-            widget = item.widget()
-            if widget:
-                widget.deleteLater()
-
-        # Add QLabel widgets with image previews
-        for path, data in sorted_versions.items():
-            files = data['files']
-            if not files:
-                continue
-            first_file_path = os.path.join(path, files[0])
-
-            widget = ClickableVersionWidget(path, first_file_path)
-            widget.doubleClicked.connect(lambda path: self.version_doubleClicked(path))
-            self.panel.version_grid.addWidget(widget)
-            #self.panel.version_grid.update()
+    def create_widget_for_version(self, path, preview_file):
+        widget = ClickableVersionWidget(path, preview_file)
+        widget.doubleClicked.connect(self.version_doubleClicked)
+        self.panel.version_grid.addWidget(widget)
+        self.panel.version_grid.update()
+        return widget
 
     def clear_current_session(self):
-    # Get all nodes in the session
-        all_nodes = rv.commands.nodes()
-        
-        # Filter for source group nodes (they hold the media)
-        source_groups = [node for node in all_nodes if rv.commands.nodeType(node) == 'RVSourceGroup']
-        
-        # Delete each source group
-        for sg in source_groups:
-            rv.commands.deleteNode(sg)
+        for node in commands.nodes():
+            if commands.nodeType(node) == "RVSourceGroup":
+                commands.deleteNode(node)
 
     def load_all_media_from_directory(self, directory_path):
-        supported_extensions = ['.exr', '.jpg', '.jpeg', '.png', '.mov', '.mp4', '.tif', '.tiff', '.dpx']
-    
+        exts = {'.exr', '.jpg', '.jpeg', '.png', '.mov', '.mp4', '.tif', '.tiff', '.dpx'}
         media_files = [
             os.path.join(directory_path, f)
             for f in sorted(os.listdir(directory_path))
-            if os.path.splitext(f)[1].lower() in supported_extensions
+            if os.path.splitext(f)[1].lower() in exts
         ]
+        if media_files:
+            commands.addSource(media_files[0])
+        else:
+            print("No supported media files in", directory_path)
 
-        if not media_files:
-            print("No supported media files found in the directory. --- >" + directory_path)
-            return
-        
-        rv.commands.addSource(media_files[0])
-
-    def version_doubleClicked(self, path=None):
-        if not path:
-            return
-        
+    def version_doubleClicked(self, path):
         self.clear_current_session()
         self.load_all_media_from_directory(path)
 
+    def get_path_from_context_id(self, context_id):
+
+        project_root = os.getenv("KITSU_PROJECT_ROOT")
+        
+        task = gazu.task.get_task(context_id)
+        entity = gazu.entity.get_entity(task['entity']['id'])
+        entity_type = entity['type'].lower()
+        entity_name = entity['name']
+        print(task, task['project'])
+
+        task_dir = None 
+        
+        if project_root:
+            if entity_type == 'shot':
+                parent_name = gazu.entity.get_entity(entity['parent_id'])['name']
+            else:
+                parent_name = gazu.entity.get_entity_type(entity['entity_type_id'])['name']
+            
+            task_dir = os.path.join(project_root,entity_type,parent_name,entity_name)
+        else:
+            return 'No Project Root'
+        
+        if task_dir:
+            return task_dir
+
     def refresh_versions_threaded(self):
-        print("Refreshing versions...")
-        self.panel.stackedWidget.setCurrentIndex(1)  # Switch to the loading screen
-        root_path = os.getenv('KITSU_PROJECT_ROOT')
-        context_id = getattr(self, 'context_id', None)
-        isconnected = getattr(self, 'isconnected', False)
+        # If a worker thread is already running, stop it first
+        try:
+            if hasattr(self, "worker_thread") and self.worker_thread.isRunning():
+                print("⏹ Stopping previous worker...")
+                self.worker.is_stopped = True
+                self.worker_thread.requestInterruption()
+                self.worker_thread.quit()
+                self.worker_thread.wait()  # Block until fully stopped
+                self.panel.refresh_button.setText("Refresh")
+                return
+        except Exception as e:
+            print("Error stopping previous worker:", e)
+
+        self.panel.refresh_button.setText("Cancel")
+
+        print("🔄 Starting new refresh...")
+        #root_path = os.getenv("KITSU_PROJECT_ROOT")
+        root_path = self.get_path_from_context_id(self.context_id)
+
+        if not root_path:
+            print("❌ KITSU_PROJECT_ROOT not set")
+            return
+        
         self.worker_thread = QThread()
-        self.worker = VersionFoldersWorker(root_path, context_id, isconnected)
+        self.worker = VersionFoldersWorker(root_path, self.context_id, self.isconnected)
         self.worker.moveToThread(self.worker_thread)
+
+        # Connect signals
         self.worker_thread.started.connect(self.worker.run)
+        self.worker.create_widget.connect(self.create_widget_for_version)
         self.worker.progress.connect(self.on_progress)
         self.worker.finished.connect(self.on_versions_ready)
+
+        # Cleanup
         self.worker.finished.connect(self.worker_thread.quit)
         self.worker.finished.connect(self.worker.deleteLater)
         self.worker_thread.finished.connect(self.worker_thread.deleteLater)
+
         self.worker_thread.start()
+        return
+
 
     def on_progress(self, message, count):
-        print(f"Progress: {message} ({count})")
-        self.panel.waiting_status_label.setText(f"{message}")
-        self.panel.stackedWidget.setCurrentIndex(1)
+        self.panel.waiting_status_label.setText(message)
+        self.panel.progressBar.setValue(count)
+
 
     def on_versions_ready(self, sorted_versions):
-        self.on_progress("Versions loaded", 100)
-        self.populate_version_panel(sorted_versions)
-        self.panel.stackedWidget.setCurrentIndex(0)
+        self.on_progress("", 0)
+        self.panel.progressBar.setValue(0)
+
