@@ -1,6 +1,7 @@
 import gazu
 from flask import request, jsonify
 import os, subprocess
+from pprint import pprint
 
 class Plugin:
     
@@ -58,21 +59,23 @@ class Plugin:
         else:
             pname = project['name']
 
-        filename = f"{os.environ['KITSU_SHOT']}_{task['task_type']['name'].lower().replace(' ', '_')}"
-        filename = filename.lower()
-        file_path= version_folder
-        if version:
-            version_string = 'v'+str(int(version)).zfill(4)
-            filename = filename+'_'+ version_string
-            file_path = os.path.join(file_path,version_string)
-        
-        filename = filename+extension
-        file_path = os.path.join(file_path,filename)
-        
-        self.kitsu_action_server.update_log('Creating : ' + str(file_path))
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
-        with open(file_path, 'w') as fp:
-            pass
+        if task['entity']['type'].lower() == 'shot':
+            filename = f"{os.environ['KITSU_SHOT']}_{task['task_type']['name'].lower().replace(' ', '_')}"
+        else:
+            filename = f"{task['entity']['name']}_{task['task_type']['name'].lower().replace(' ', '_')}"
+            file_path= version_folder
+            if version:
+                version_string = 'v'+str(int(version)).zfill(4)
+                filename = filename+'_'+ version_string
+                file_path = os.path.join(file_path,version_string)
+            
+            filename = filename+extension
+            file_path = os.path.join(file_path,filename)
+            
+            self.kitsu_action_server.update_log('Creating : ' + str(file_path))
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            with open(file_path, 'w') as fp:
+                pass
 
         
         python_code = 'import bpy; '+ f'bpy.ops.wm.save_as_mainfile(filepath=r"{file_path}" ); bpy.ops.wm.quit_blender()'

@@ -8,6 +8,7 @@ from PySide2 import QtWidgets, QtGui, QtCore
 
 folder_path = os.path.dirname(os.path.dirname(__file__))
 import gazu
+#from nuke_studio_render_clips import export_clips_to_mp4
 
 
 
@@ -167,6 +168,8 @@ class studio_timeline_exporter(QMainWindow):
             return True
         else:
             return False
+        
+        
             
     def export_timeline(self):
         project = gazu.project.get_project_by_name(self.ui.project.text())
@@ -230,6 +233,8 @@ class studio_timeline_exporter(QMainWindow):
 
             thumbnail_path = temp_file_path = tempfile.mkstemp()[1]+'.jpeg'
             hiero_track_item.source().thumbnail().save(thumbnail_path, 'JPEG')    
+
+
 
             preview_file = gazu.task.add_preview(
                 task,

@@ -1,0 +1,4 @@
+[console_scripts]
+maketx = OpenImageIO:_command_line
+oiiotool = OpenImageIO:_command_line
+

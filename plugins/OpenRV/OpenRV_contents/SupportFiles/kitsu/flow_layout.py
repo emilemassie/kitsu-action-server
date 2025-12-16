@@ -9,6 +9,17 @@ class FlowLayout(QLayout):
         self.setContentsMargins(margin, margin, margin, margin)
         self.setSpacing(spacing)
 
+    def clear(self):
+        """Remove and delete all widgets from the layout."""
+        while self.count():
+            item = self.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)  # remove from layout
+                widget.deleteLater()
+            elif item.layout() is not None:
+                item.layout().clear()
+
     def addItem(self, item):
         self.itemList.append(item)
 

@@ -8,6 +8,7 @@ from PySide2.QtCore import Qt, Signal, QThread, QObject, QFile
 from rv import rvtypes, commands
 import gazu
 from flow_layout import FlowLayout
+from ClickableVersionWidget import ClickableVersionWidget
 
 
 def try_gazu_connection():
@@ -19,41 +20,7 @@ def try_gazu_connection():
     except Exception as e:
         print(e)
         return False
-
-
-class ClickableVersionWidget(QWidget):
-    doubleClicked = Signal(str)
-
-    def __init__(self, file_path, image_path=None, parent=None):
-        super().__init__(parent)
-        self.file_path = file_path
-        self.version_name = os.path.basename(file_path)
-
-        self.setFixedSize(160, 90)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        # Thumbnail
-        self.image_label = QLabel()
-        self.image_label.setFixedSize(160, 90)
-        self.image_label.setScaledContents(True)
-        if image_path:
-            self.image_label.setPixmap(QPixmap(image_path))
-
-        # Info text
-        label_name = f'{os.path.basename(image_path).split(".")[0] if image_path else ""}\n{self.version_name}\n{self.file_path}'
-        self.text_label = QLabel(label_name)
-        self.text_label.setAlignment(Qt.AlignCenter)
-        self.text_label.setStyleSheet("background-color: rgba(0,0,0,128); color: white; padding: 5px;")
-        self.text_label.setAttribute(Qt.WA_TransparentForMouseEvents)
-
-        layout.addWidget(self.image_label)
-        layout.addWidget(self.text_label, alignment=Qt.AlignTop)
-
-    def mouseDoubleClickEvent(self, event):
-        self.doubleClicked.emit(self.file_path)
-
-
+    
 class VersionFoldersWorker(QObject):
     finished = Signal(dict)
     progress = Signal(str, int)
@@ -125,7 +92,6 @@ class VersionFoldersWorker(QObject):
         return dict(sorted(version_folders.items(), key=lambda item: item[1]["ctime"], reverse=True))
 
 
-
 class KitsuPanel(rvtypes.MinorMode):
     def __init__(self, supportPath):
         super().__init__()
@@ -154,6 +120,7 @@ class KitsuPanel(rvtypes.MinorMode):
         self.context_id = os.getenv("KITSU_CONTEXT_ID")
         if self.context_id:
             self.panel.context_id_label.setText(self.context_id)
+            self.refresh_versions_threaded()
         self.project_root = os.getenv("KITSU_PROJECT_ROOT")
 
         # Dock widget
@@ -226,7 +193,6 @@ class KitsuPanel(rvtypes.MinorMode):
         entity = gazu.entity.get_entity(task['entity']['id'])
         entity_type = entity['type'].lower()
         entity_name = entity['name']
-        print(task, task['project'])
 
         task_dir = None 
         
@@ -245,6 +211,7 @@ class KitsuPanel(rvtypes.MinorMode):
 
     def refresh_versions_threaded(self):
         # If a worker thread is already running, stop it first
+        self.panel.version_grid.clear()
         try:
             if hasattr(self, "worker_thread") and self.worker_thread.isRunning():
                 print("⏹ Stopping previous worker...")
@@ -294,4 +261,8 @@ class KitsuPanel(rvtypes.MinorMode):
     def on_versions_ready(self, sorted_versions):
         self.on_progress("", 0)
         self.panel.progressBar.setValue(0)
+        self.panel.refresh_button.setText("Refresh")
+
+
+
 

@@ -7,6 +7,7 @@ print('     NUKE KITSU-CONNECT     ')
 print('----------------------------\n\n')
 
 sys.path.append(os.path.join(os.path.dirname(__file__), 'site-packages'))
+sys.path.append(os.path.dirname(__file__))
 import gazu
 os.environ['KITSU_CONNECT_NUKE_PATH'] = os.path.dirname(__file__)
 
@@ -23,8 +24,6 @@ kitsu_menu = nuke.menu("Nuke").addMenu("Kitsu-connect")
 # KITSU CONNECT NUKE PANEL
 
 from core import kitsu_connect_panel
-
-print (os.environ)
 
 pathToClass='kitsu_connect_panel.kitsu_connect_panel' #the full python path to your panel
 HRName='Kitsu Connect' #the Human-readable name you want for your panel
